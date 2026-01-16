@@ -190,11 +190,71 @@ This system is a middleware layer placed between the planning part of an agent (
 The system reduces dependence on unreliable or incomplete API documentation by learning tool semantics directly from real executions. Instead of trusting static specs, it continuously ingests request–response traces, error messages, and successful call patterns into a retrieval-based knowledge store. During planning and execution, relevant observed schemas, valid fields, and hidden constraints are retrieved and injected into the model’s context, allowing it to ground its decisions in how the API actually behaves rather than how it is described. Over time, this replaces guesswork with an evolving, evidence-based understanding of each tool.
 - **Contextual Drift in Long-Horizon Workflows.**
 To prevent loss or corruption of intermediate variables across many steps, the system maintains an explicit semantic memory of entities, their types, units, and transformations. Intermediate results are stored and retrieved with their roles and constraints, and compatibility checks are applied whenever data flows from one step to the next. When complex or precise transformations are required, deterministic programs are executed in a sandbox to ensure exact conversions. This reduces reliance on fragile long-context attention and keeps variable meanings stable across extended reasoning chains.
+    
      **One alternate approach to mitigate this point (research in-progress):**
 
 > To mitigate contextual drift in long-horizon tasks, the system maintains an explicit external state store (e.g., a low-latency key–value database such as Redis/DynamoDB) indexed by session or request ID. Intermediate variables, along with their semantic roles, types, and units, are persistently stored and retrieved across steps. This replaces fragile in-context memory with stable symbolic bindings, preventing identifier confusion, silent unit changes, and format corruption as workflows span many tool invocations.
 
 - **Hallucinated Parameters and Fabricated Structures.**
 The system limits over-confident invention by constraining generation with retrieved, validated schemas and historical correction patterns. Before a tool call is executed, the proposed arguments are checked against known fields, allowed enum values, and learned structural rules, and mismatches trigger retrieval of past fixes or automatic adaptation. Failed calls are fed back into the knowledge base, strengthening future constraints. As a result, plausible-looking but invalid parameters are filtered out, and tool usage becomes grounded in observed, verified interface semantics rather than in pattern-based speculation.
+
+
+
+
+## Cold-Start Scenario: Behavior with an Empty Semantic Knowledge Base
+When the system is first deployed, the Semantic Knowledge Base (vector database) may contain little to no information about the target APIs. In this cold-start phase, the agent cannot rely on retrieved schemas, constraints, or past correction patterns, and therefore operates in an exploratory mode similar to a standard tool-using LLM. The key difference, however, is that the system is instrumented to _observe, correct, and learn_ from every mismatch rather than simply failing.
+
+#### 1. Initial Tool Usage (Spec-Driven Guessing)
+With no prior semantic entries available:
+
+- The LRM plans using static or partial API specifications, or general prior knowledge.
+- The LAM generates tool calls that may:
+    - Use incorrect field names
+    - Misinterpret formats or units
+    - Hallucinate optional or nonexistent parameters
+
+- API calls may fail with validation errors (e.g., 400/422 responses) or return unexpected outputs.
+#### 2. Online Mismatch Detection
+Each tool call is checked through:
+
+- Schema validation
+- Type and unit checks
+- API error analysis
+When a mismatch is detected (e.g., wrong enum value, missing required field, incorrect timestamp format), the system flags the call as semantically inconsistent.
+
+#### 3. Sandboxed Runtime as Continuous Repair Loop
+Even without prior knowledge in the vector database, the **Sandboxed Transformation Environment** remains fully active:
+
+- The LRM acts as a controller that decides a deterministic fix is required.
+- It generates or selects a small Python transformation (e.g., unit conversion, date parsing, ID normalization).
+- The sandbox executes this code in a restricted environment.
+- The corrected output is reinjected into the execution pipeline.
+- The LAM retries the API call using the repaired values.
+
+
+> Generate → Validate → Detect Mismatch → Transform in Sandbox → Retry
+
+
+
+#### 4. Knowledge Accumulation
+Every successful and failed interaction is recorded:
+
+- Actual request/response structures
+- Error messages and causes
+- Applied transformations
+- Final corrected schemas
+These artifacts are embedded and stored in the Semantic Knowledge Base. Over time, this builds:
+
+- Inferred API schemas
+- Hidden constraints
+- Reusable transformation patterns
+- Field and unit mappings
+#### 5. Transition from Exploration to Retrieval-Guided Execution
+As the knowledge base grows:
+
+- Planning becomes guided by retrieved, empirically grounded semantics.
+- Many corrections no longer require on-the-fly sandbox execution.
+- Previously learned adapters are reused directly.
+- Hallucination and drift rates decrease.
 
 
